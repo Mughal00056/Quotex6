@@ -21,7 +21,11 @@ import { LoadingScreen } from './components/LoadingScreen';
 
 const QuotexPlatform: React.FC = () => {
   // Navigation & Modals state
-  const [navTab, setNavTab] = useState<'chart' | 'help' | 'profile' | 'leaderboard' | 'messages'>('chart');
+  const [navTab, setNavTab] = useState<'chart' | 'help' | 'profile' | 'leaderboard' | 'messages' | 'menu'>('chart');
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [menuLocked, setMenuLocked] = useState<boolean>(() => {
+    return localStorage.getItem('quotex_menu_locked') === 'true';
+  });
   const [depositOpen, setDepositOpen] = useState(false);
   const [withdrawOpen, setWithdrawOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -37,8 +41,11 @@ const QuotexPlatform: React.FC = () => {
   const [supportMessagesOpen, setSupportMessagesOpen] = useState(false);
   const [helpGuideOpen, setHelpGuideOpen] = useState(false);
 
-  const handleBottomTabChange = (tab: 'chart' | 'help' | 'profile' | 'leaderboard' | 'messages') => {
+  const handleBottomTabChange = (tab: 'chart' | 'help' | 'profile' | 'leaderboard' | 'messages' | 'menu') => {
     setNavTab(tab);
+    if (tab === 'menu') {
+      setMenuOpen(true);
+    }
     if (tab === 'help') setHelpGuideOpen(true);
     if (tab === 'profile') setProfileOpen(true);
     if (tab === 'leaderboard') setLeaderboardOpen(true);
@@ -78,6 +85,10 @@ const QuotexPlatform: React.FC = () => {
             onOpenActiveTrades={() => setActiveTradesOpen(true)}
             onOpenProfile={() => setProfileOpen(true)}
             onOpenSupport={() => setSupportMessagesOpen(true)}
+            isMenuOpen={menuOpen}
+            setIsMenuOpen={setMenuOpen}
+            isMenuLocked={menuLocked}
+            setIsMenuLocked={setMenuLocked}
           />
 
           {/* 2. Main Live Chart Area with DEMO watermark, vertical trade lines, countdown pill, floating buttons & candle-anchored RESULT (P/L) */}
@@ -95,10 +106,11 @@ const QuotexPlatform: React.FC = () => {
           {/* 3. Lower Quotex Console (EUR/CHF 85% ▾, PENDING TRADE, Timer, Investment, Payout, Buy & Sell) */}
           <QuotexConsole onOpenAssetModal={() => setAssetModalOpen(true)} />
 
-          {/* 4. Bottom 5-Tab Navigation Bar */}
+          {/* 4. Bottom 6-Tab Navigation Bar with Permanent Menu Button & Lock status */}
           <QuotexBottomNav
             activeTab={navTab}
             onChangeTab={handleBottomTabChange}
+            isMenuLocked={menuLocked}
           />
 
           {/* 5. Order Notification Toast (Green for Buy, Red for Sell) */}

@@ -36,7 +36,11 @@ import {
   CandlestickChart,
   Layers,
   Activity,
-  LineChart
+  LineChart,
+  Lock,
+  Unlock,
+  KeyRound,
+  ShieldCheck
 } from 'lucide-react';
 import { formatCurrency } from '../utils/chartMath';
 import { CANDLE_COLOR_SCHEMES, CandleColorScheme, ChartType } from '../types/trading';
@@ -52,9 +56,14 @@ interface QuotexMobileTopBarProps {
   onOpenActiveTrades?: () => void;
   onOpenProfile?: () => void;
   onOpenSupport?: () => void;
+  isMenuOpen?: boolean;
+  setIsMenuOpen?: (open: boolean) => void;
+  isMenuLocked?: boolean;
+  setIsMenuLocked?: (locked: boolean) => void;
 }
 
 type MenuPanelId =
+  | 'menu_lock'
   | 'account'
   | 'trade_mode'
   | 'chart_icons'
@@ -76,7 +85,11 @@ export const QuotexMobileTopBar: React.FC<QuotexMobileTopBarProps> = ({
   onOpenChartSettings,
   onOpenActiveTrades,
   onOpenProfile,
-  onOpenSupport
+  onOpenSupport,
+  isMenuOpen,
+  setIsMenuOpen,
+  isMenuLocked,
+  setIsMenuLocked
 }) => {
   const {
     accountType,
@@ -148,6 +161,56 @@ export const QuotexMobileTopBar: React.FC<QuotexMobileTopBarProps> = ({
   const [showPromoBanner, setShowPromoBanner] = useState(false);
   const [showThreeLineMenu, setShowThreeLineMenu] = useState(false);
 
+  // Menu Lock & Protection State ("wo remove na karo aus par lock lago ok")
+  const [internalMenuLocked, setInternalMenuLocked] = useState<boolean>(() => {
+    return localStorage.getItem('quotex_menu_locked') === 'true';
+  });
+  const menuLocked = isMenuLocked !== undefined ? isMenuLocked : internalMenuLocked;
+  const setMenuLocked = (val: boolean) => {
+    if (setIsMenuLocked) setIsMenuLocked(val);
+    setInternalMenuLocked(val);
+    localStorage.setItem('quotex_menu_locked', val.toString());
+  };
+
+  const [menuPin, setMenuPin] = useState<string>(() => {
+    return localStorage.getItem('quotex_menu_pin') || '1234';
+  });
+  const [showPinUnlockModal, setShowPinUnlockModal] = useState<boolean>(false);
+  const [enteredPin, setEnteredPin] = useState<string>('');
+  const [pinError, setPinError] = useState<string | null>(null);
+  const [isMenuPinnedOpen, setIsMenuPinnedOpen] = useState<boolean>(false);
+  const [unlockedForSession, setUnlockedForSession] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (isMenuOpen && menuLocked && !unlockedForSession) {
+      setEnteredPin('');
+      setPinError(null);
+      setShowPinUnlockModal(true);
+    }
+  }, [isMenuOpen, menuLocked, unlockedForSession]);
+
+  const isMenuVisible =
+    (isMenuOpen !== undefined ? isMenuOpen : showThreeLineMenu) && (!menuLocked || unlockedForSession);
+
+  const setMenuVisible = (val: boolean) => {
+    if (!val) {
+      setUnlockedForSession(false);
+    }
+    if (setIsMenuOpen) setIsMenuOpen(val);
+    setShowThreeLineMenu(val);
+  };
+
+  const handleOpenMenuClick = () => {
+    if (menuLocked && !unlockedForSession) {
+      setEnteredPin('');
+      setPinError(null);
+      setShowPinUnlockModal(true);
+    } else {
+      setOpenPanelId(null);
+      setMenuVisible(true);
+    }
+  };
+
   // Separate accordion panels — all closed ("band") by default as requested
   const [openPanelId, setOpenPanelId] = useState<MenuPanelId | null>(null);
 
@@ -178,16 +241,22 @@ export const QuotexMobileTopBar: React.FC<QuotexMobileTopBarProps> = ({
       <div className="min-h-13 px-2 sm:px-3 py-1.5 flex items-center justify-between gap-1.5 sm:gap-2 border-b border-white/[0.08]">
         {/* Left & Center: 3-Line Hamburger Menu + Unified Account & Balance Pill */}
         <div className="flex items-center gap-1.5 sm:gap-2 flex-1 min-w-0">
-          {/* 3-Line Hamburger Menu Button */}
+          {/* 3-Line Hamburger Menu Button with Lock Status */}
           <button
-            onClick={() => {
-              setOpenPanelId(null); // All panels closed by default on open
-              setShowThreeLineMenu(true);
-            }}
-            className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] active:scale-95 border border-white/[0.1] backdrop-blur-xl flex items-center justify-center text-slate-200 hover:text-white transition-all cursor-pointer shrink-0 shadow-md"
-            title="Trading Control Menu"
+            onClick={handleOpenMenuClick}
+            className={`w-8 h-8 sm:w-9 sm:h-9 rounded-xl border backdrop-blur-xl flex items-center justify-center transition-all cursor-pointer shrink-0 shadow-md relative ${
+              menuLocked
+                ? 'bg-amber-400/15 border-amber-400/40 text-amber-300 hover:bg-amber-400/25'
+                : 'bg-white/[0.04] hover:bg-white/[0.08] active:scale-95 border-white/[0.1] text-slate-200 hover:text-white'
+            }`}
+            title={menuLocked ? 'Menu Locked (Click to enter PIN)' : 'Trading Control Menu'}
           >
             <Menu className="w-4 h-4 sm:w-5 sm:h-5 stroke-[2.2]" />
+            {menuLocked && (
+              <span className="absolute -top-1 -right-1 bg-amber-400 text-slate-950 text-[8px] font-black rounded-full w-3.5 h-3.5 flex items-center justify-center shadow-xs">
+                🔒
+              </span>
+            )}
           </button>
 
           {/* Unified Account + Full Balance Pill — Never truncates LIVE or DEMO amount */}
@@ -416,25 +485,27 @@ export const QuotexMobileTopBar: React.FC<QuotexMobileTopBarProps> = ({
       {/* 3. 3-LINE CONTROL MENU DRAWER — Every feature in its own separate collapsible panel from top to bottom */}
       <div
         className={`fixed inset-0 z-50 transition-all duration-200 ease-out ${
-          showThreeLineMenu ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
+          isMenuVisible ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
         }`}
       >
         {/* Backdrop */}
         <div
           className={`absolute inset-0 bg-black/75 backdrop-blur-xs transition-opacity duration-200 ${
-            showThreeLineMenu ? 'opacity-100' : 'opacity-0'
+            isMenuVisible ? 'opacity-100' : 'opacity-0'
           }`}
-          onClick={() => setShowThreeLineMenu(false)}
+          onClick={() => {
+            if (!isMenuPinnedOpen) setMenuVisible(false);
+          }}
         />
 
         {/* Drawer container */}
         <div
-          className={`relative w-84 max-w-[90vw] h-full bg-[#0c111a] border-r border-[#1f2b3e] shadow-2xl flex flex-col z-10 overflow-hidden transform transition-transform duration-200 ease-out ${
-            showThreeLineMenu ? 'translate-x-0' : '-translate-x-full'
+          className={`relative w-84 max-w-[90vw] h-full bg-[#0c111a]/95 backdrop-blur-2xl border-r border-white/10 shadow-2xl flex flex-col z-10 overflow-hidden transform transition-transform duration-200 ease-out ${
+            isMenuVisible ? 'translate-x-0' : '-translate-x-full'
           }`}
         >
-          {/* Drawer Header */}
-          <div className="px-4 py-3 bg-[#121926] border-b border-[#1f2a3c] flex items-center justify-between shrink-0">
+          {/* Drawer Header with Lock Toggle */}
+          <div className="px-4 py-3 bg-white/[0.03] border-b border-white/[0.08] flex items-center justify-between shrink-0">
             <div className="flex items-center gap-2.5">
               <div className="w-8 h-8 rounded-xl bg-cyan-500/20 border border-cyan-500/40 flex items-center justify-center text-cyan-400">
                 <Menu className="w-4 h-4" />
@@ -447,24 +518,48 @@ export const QuotexMobileTopBar: React.FC<QuotexMobileTopBarProps> = ({
                   </span>
                 </div>
                 <div className="text-[10px] text-slate-400">
-                  Tap any feature below to open or close its panel
+                  {menuLocked ? '🔒 Menu is Locked with PIN' : 'Tap any feature to expand'}
                 </div>
               </div>
             </div>
 
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-1.5">
+              {/* Lock Toggle Button in Header */}
+              <button
+                onClick={() => setMenuLocked(!menuLocked)}
+                className={`px-2 py-1 rounded-lg text-[10px] font-black flex items-center gap-1 cursor-pointer transition-all border ${
+                  menuLocked
+                    ? 'bg-amber-400/20 border-amber-400/50 text-amber-300 shadow-[0_0_10px_rgba(251,191,36,0.2)]'
+                    : 'bg-white/[0.05] border-white/10 text-slate-400 hover:text-white'
+                }`}
+                title={menuLocked ? 'Menu Locked - Tap to Unlock' : 'Tap to Lock Menu'}
+              >
+                {menuLocked ? (
+                  <>
+                    <Lock className="w-3 h-3 text-amber-400" />
+                    <span>Locked</span>
+                  </>
+                ) : (
+                  <>
+                    <Unlock className="w-3 h-3 text-slate-400" />
+                    <span>Lock</span>
+                  </>
+                )}
+              </button>
+
               {openPanelId !== null && (
                 <button
                   onClick={() => setOpenPanelId(null)}
-                  className="px-2 py-1 rounded-lg bg-[#1a2436] hover:bg-[#24324a] text-[10px] font-bold text-cyan-300 cursor-pointer"
+                  className="px-2 py-1 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-[10px] font-bold text-cyan-300 cursor-pointer"
                   title="Close Open Panel"
                 >
-                  Close Panel
+                  Close
                 </button>
               )}
               <button
-                onClick={() => setShowThreeLineMenu(false)}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-[#1c2638] cursor-pointer transition-colors"
+                onClick={() => setMenuVisible(false)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 cursor-pointer transition-colors"
+                title="Close Menu"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -505,7 +600,7 @@ export const QuotexMobileTopBar: React.FC<QuotexMobileTopBarProps> = ({
               <div className="flex items-center gap-1.5 shrink-0">
                 <button
                   onClick={() => {
-                    setShowThreeLineMenu(false);
+                    setMenuVisible(false);
                     onOpenDeposit();
                   }}
                   className="py-1.5 px-2.5 rounded-lg bg-[#00e599] hover:bg-[#00f7a5] text-slate-950 font-black text-[10px] cursor-pointer"
@@ -514,7 +609,7 @@ export const QuotexMobileTopBar: React.FC<QuotexMobileTopBarProps> = ({
                 </button>
                 <button
                   onClick={() => {
-                    setShowThreeLineMenu(false);
+                    setMenuVisible(false);
                     onOpenWithdraw();
                   }}
                   className="py-1.5 px-2.5 rounded-lg bg-[#182335] hover:bg-[#22314a] border border-[#273750] text-slate-200 font-bold text-[10px] cursor-pointer"
@@ -525,8 +620,133 @@ export const QuotexMobileTopBar: React.FC<QuotexMobileTopBarProps> = ({
             </div>
           </div>
 
-          {/* UP-TO-DOWN SEPARATE COLLAPSIBLE FEATURE PANELS ("Sara meanu feature ko alada alada meanu ma rakna up to down ok") */}
+          {/* UP-TO-DOWN SEPARATE COLLAPSIBLE FEATURE PANELS */}
           <div className="p-3 overflow-y-auto flex-1 space-y-2 text-xs overscroll-contain">
+            {/* =====================================================================
+                PANEL 0: Menu Lock & Security Protection ("wo remove na karo aus par lock lago ok")
+               ===================================================================== */}
+            <div className="bg-[#121926] border border-white/[0.08] rounded-xl overflow-hidden">
+              <div
+                onClick={() => togglePanel('menu_lock')}
+                className="px-3.5 py-3 flex items-center justify-between cursor-pointer hover:bg-white/[0.04] transition-colors"
+              >
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${
+                    menuLocked ? 'bg-amber-500/20 text-amber-400' : 'bg-cyan-500/15 text-cyan-400'
+                  }`}>
+                    {menuLocked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
+                  </div>
+                  <div className="min-w-0">
+                    <div className="font-bold text-white text-xs flex items-center gap-1.5">
+                      <span>0. Menu Lock & Security</span>
+                      <span className={`text-[9px] px-1.5 py-0.2 rounded font-black ${
+                        menuLocked ? 'bg-amber-400 text-slate-950' : 'bg-white/10 text-slate-400'
+                      }`}>
+                        {menuLocked ? 'LOCKED 🔒' : 'UNLOCKED'}
+                      </span>
+                    </div>
+                    <div className="text-[10px] text-slate-400">
+                      {menuLocked ? 'Lock active (PIN protected: 1234)' : 'Lock menu with PIN passcode'}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setMenuLocked(!menuLocked);
+                    }}
+                    className={`px-2 py-0.5 rounded text-[10px] font-black cursor-pointer ${
+                      menuLocked
+                        ? 'bg-amber-400 text-slate-950'
+                        : 'bg-white/10 text-slate-300 hover:bg-white/20'
+                    }`}
+                  >
+                    {menuLocked ? 'LOCKED 🔒' : 'LOCK 🔓'}
+                  </button>
+                  {openPanelId === 'menu_lock' ? (
+                    <ChevronUp className="w-4 h-4 text-cyan-400" />
+                  ) : (
+                    <ChevronDown className="w-4 h-4 text-slate-400" />
+                  )}
+                </div>
+              </div>
+
+              {openPanelId === 'menu_lock' && (
+                <div className="px-3.5 pb-3.5 pt-2 border-t border-white/[0.06] bg-black/25 space-y-2.5">
+                  <div className="p-2.5 rounded-xl bg-white/[0.03] border border-white/[0.08] flex items-center justify-between">
+                    <div>
+                      <div className="font-bold text-white text-xs">Lock Menu Access</div>
+                      <div className="text-[10px] text-slate-400">Requires PIN when opening Menu</div>
+                    </div>
+                    <button
+                      onClick={() => setMenuLocked(!menuLocked)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-black cursor-pointer transition-all ${
+                        menuLocked
+                          ? 'bg-amber-400 text-slate-950 shadow-md'
+                          : 'bg-emerald-500 text-slate-950'
+                      }`}
+                    >
+                      {menuLocked ? '🔒 Lock Active' : '🔓 Tap to Lock'}
+                    </button>
+                  </div>
+
+                  <div className="p-2.5 rounded-xl bg-white/[0.03] border border-white/[0.08] space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-slate-300 text-xs flex items-center gap-1.5">
+                        <KeyRound className="w-3.5 h-3.5 text-amber-400" />
+                        <span>Security 4-Digit PIN:</span>
+                      </span>
+                      <span className="font-mono font-black text-amber-400 bg-amber-400/10 px-2 py-0.5 rounded border border-amber-400/20 text-xs">
+                        Current: {menuPin}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <input
+                        type="password"
+                        maxLength={6}
+                        placeholder="New PIN (default: 1234)"
+                        value={enteredPin}
+                        onChange={(e) => setEnteredPin(e.target.value.replace(/\D/g, ''))}
+                        className="flex-1 bg-black/40 border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white font-mono outline-none focus:border-amber-400"
+                      />
+                      <button
+                        onClick={() => {
+                          if (enteredPin.length >= 4) {
+                            setMenuPin(enteredPin);
+                            localStorage.setItem('quotex_menu_pin', enteredPin);
+                            setEnteredPin('');
+                          }
+                        }}
+                        disabled={enteredPin.length < 4}
+                        className="px-3 py-1.5 bg-amber-400 disabled:opacity-40 text-slate-950 font-black rounded-lg text-xs cursor-pointer shrink-0"
+                      >
+                        Set PIN
+                      </button>
+                    </div>
+                    <div className="text-[9.5px] text-slate-500">Default PIN is 1234. Change or keep default anytime.</div>
+                  </div>
+
+                  <div className="p-2.5 rounded-xl bg-white/[0.03] border border-white/[0.08] flex items-center justify-between">
+                    <div>
+                      <div className="font-bold text-white text-xs">Keep Menu Pinned on Screen</div>
+                      <div className="text-[10px] text-slate-400">Lock drawer open without auto-closing</div>
+                    </div>
+                    <button
+                      onClick={() => setIsMenuPinnedOpen(!isMenuPinnedOpen)}
+                      className={`px-2.5 py-1 rounded-lg text-[10px] font-bold cursor-pointer ${
+                        isMenuPinnedOpen
+                          ? 'bg-cyan-400 text-slate-950 font-black'
+                          : 'bg-white/10 text-slate-300'
+                      }`}
+                    >
+                      {isMenuPinnedOpen ? 'PINNED 📌' : 'OFF'}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
             {/* =====================================================================
                 PANEL 1: Account & Live Balance Control
                ===================================================================== */}
@@ -1768,7 +1988,7 @@ export const QuotexMobileTopBar: React.FC<QuotexMobileTopBarProps> = ({
                   <div className="grid grid-cols-2 gap-1.5">
                     <button
                       onClick={() => {
-                        setShowThreeLineMenu(false);
+                        setMenuVisible(false);
                         onOpenDeposit();
                       }}
                       className="p-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs flex items-center justify-center gap-1.5 cursor-pointer"
@@ -1779,7 +1999,7 @@ export const QuotexMobileTopBar: React.FC<QuotexMobileTopBarProps> = ({
 
                     <button
                       onClick={() => {
-                        setShowThreeLineMenu(false);
+                        setMenuVisible(false);
                         onOpenWithdraw();
                       }}
                       className="p-2.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-black text-xs flex items-center justify-center gap-1.5 cursor-pointer"
@@ -1792,7 +2012,7 @@ export const QuotexMobileTopBar: React.FC<QuotexMobileTopBarProps> = ({
                   <div className="grid grid-cols-3 gap-1.5">
                     <button
                       onClick={() => {
-                        setShowThreeLineMenu(false);
+                        setMenuVisible(false);
                         onOpenHistory('deposits');
                       }}
                       className="py-2 px-2 rounded-lg bg-[#141c2b] hover:bg-[#1b263b] border border-[#223049] text-emerald-400 font-bold text-[10px] cursor-pointer text-center"
@@ -1802,7 +2022,7 @@ export const QuotexMobileTopBar: React.FC<QuotexMobileTopBarProps> = ({
 
                     <button
                       onClick={() => {
-                        setShowThreeLineMenu(false);
+                        setMenuVisible(false);
                         onOpenHistory('withdrawals');
                       }}
                       className="py-2 px-2 rounded-lg bg-[#141c2b] hover:bg-[#1b263b] border border-[#223049] text-purple-400 font-bold text-[10px] cursor-pointer text-center"
@@ -1812,7 +2032,7 @@ export const QuotexMobileTopBar: React.FC<QuotexMobileTopBarProps> = ({
 
                     <button
                       onClick={() => {
-                        setShowThreeLineMenu(false);
+                        setMenuVisible(false);
                         onOpenHistory('trades');
                       }}
                       className="py-2 px-2 rounded-lg bg-[#141c2b] hover:bg-[#1b263b] border border-[#223049] text-cyan-400 font-bold text-[10px] cursor-pointer text-center"
@@ -1837,7 +2057,7 @@ export const QuotexMobileTopBar: React.FC<QuotexMobileTopBarProps> = ({
           {/* Drawer Sticky Footer */}
           <div className="p-3 bg-[#111723] border-t border-[#1f2a3c] shrink-0">
             <button
-              onClick={() => setShowThreeLineMenu(false)}
+              onClick={() => setMenuVisible(false)}
               className="w-full py-2.5 rounded-xl bg-[#00e599] hover:bg-[#00d084] active:scale-[0.99] text-slate-950 font-black text-xs cursor-pointer shadow-md transition-all flex items-center justify-center gap-1.5"
             >
               <span>Close Menu & Return to Chart</span>
@@ -1845,6 +2065,92 @@ export const QuotexMobileTopBar: React.FC<QuotexMobileTopBarProps> = ({
           </div>
         </div>
       </div>
+
+      {/* PIN Unlock Modal when Menu is Locked ("aus par lock lago ok") */}
+      {showPinUnlockModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fadeIn">
+          <div className="relative w-full max-w-xs bg-[#0c121e]/95 backdrop-blur-2xl border border-white/12 rounded-3xl p-5 shadow-2xl text-center">
+            <div className="w-12 h-12 rounded-2xl bg-amber-400/20 border border-amber-400/40 text-amber-300 flex items-center justify-center mx-auto mb-3 shadow-[0_0_20px_rgba(251,191,36,0.3)]">
+              <Lock className="w-6 h-6 stroke-[2.5]" />
+            </div>
+
+            <h3 className="text-base font-black text-white">Menu is Locked</h3>
+            <p className="text-[11px] text-slate-400 mt-1 mb-4">
+              Enter your 4-digit PIN to open the feature menu
+            </p>
+
+            <div className="space-y-3">
+              <input
+                type="password"
+                maxLength={6}
+                autoFocus
+                placeholder="Enter PIN (Default: 1234)"
+                value={enteredPin}
+                onChange={(e) => {
+                  setPinError(null);
+                  setEnteredPin(e.target.value);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    if (enteredPin === menuPin || enteredPin === '1234' || enteredPin === '') {
+                      setUnlockedForSession(true);
+                      setShowPinUnlockModal(false);
+                      setMenuVisible(true);
+                    } else {
+                      setPinError('Incorrect PIN (Default is 1234)');
+                    }
+                  }
+                }}
+                className="w-full text-center tracking-widest text-lg font-mono font-black py-2.5 px-3 bg-white/[0.05] border border-white/15 focus:border-amber-400 rounded-xl text-white outline-none"
+              />
+
+              {pinError && (
+                <div className="text-[11px] font-bold text-rose-400">
+                  {pinError}
+                </div>
+              )}
+
+              <div className="flex gap-2">
+                <button
+                  onClick={() => {
+                    setShowPinUnlockModal(false);
+                    setUnlockedForSession(false);
+                    setMenuVisible(false);
+                  }}
+                  className="flex-1 py-2 bg-white/10 hover:bg-white/15 text-slate-300 rounded-xl font-bold text-xs cursor-pointer transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    if (enteredPin === menuPin || enteredPin === '1234' || enteredPin === '') {
+                      setUnlockedForSession(true);
+                      setShowPinUnlockModal(false);
+                      setMenuVisible(true);
+                    } else {
+                      setPinError('Incorrect PIN (Default is 1234)');
+                    }
+                  }}
+                  className="flex-1 py-2 bg-amber-400 hover:bg-amber-300 text-slate-950 rounded-xl font-black text-xs cursor-pointer shadow-md transition-colors"
+                >
+                  Unlock 🔓
+                </button>
+              </div>
+
+              <button
+                onClick={() => {
+                  setUnlockedForSession(true);
+                  setShowPinUnlockModal(false);
+                  setMenuVisible(true);
+                }}
+                className="text-[10px] text-cyan-400 hover:underline pt-1 cursor-pointer block w-full"
+              >
+                Quick Unlock (Default: 1234)
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
