@@ -783,7 +783,6 @@ export const TradingProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   // Real-time Tick Engine: Strict 1-Minute (60,000ms) Candle Alignment
   // Live candle moves smoothly every tick (150ms) by visible pip steps — never frozen in one place, and never teleports on trade entry!
-  const lastAssetSyncTimeRef = useRef<number>(0);
   useEffect(() => {
     const tickInterval = 150; // ~6.6 ticks/sec for realistic live OTC candle breathing
     const timeframeMs = 60 * 1000; // Strictly 1 minute per candle
@@ -868,10 +867,8 @@ export const TradingProvider: React.FC<{ children: React.ReactNode }> = ({ child
         }
         currentPriceRef.current = newPrice;
 
-        // Throttle global asset list state updates to 1s to eliminate website lag while keeping live candle smooth
-        const nowMs = Date.now();
-        if (nowMs - lastAssetSyncTimeRef.current >= 1000) {
-          lastAssetSyncTimeRef.current = nowMs;
+        // Throttle setAssets to reduce unnecessary React tree re-renders and eliminate UI lag
+        if (Math.random() < 0.28 || Math.abs(newPrice - activeAsset.currentPrice) >= pip * 2) {
           setAssets((prev) =>
             prev.map((a) => (a.id === activeAsset.id ? { ...a, currentPrice: newPrice } : a))
           );

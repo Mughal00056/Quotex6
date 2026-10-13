@@ -55,9 +55,14 @@ const QuotexPlatform: React.FC = () => {
       {/* 0. Quotex Premium Initial Loading Screen */}
       <LoadingScreen />
 
-      <div className="fixed inset-0 w-full h-[100dvh] bg-[#07090e] select-none overflow-hidden flex justify-center items-center overscroll-none">
-        {/* Quotex Mobile Container */}
-        <div className="relative w-full h-full max-w-full sm:max-w-md md:max-w-xl lg:max-w-2xl bg-[#0a0d14] flex flex-col justify-between overflow-hidden shadow-2xl sm:border-x sm:border-[#1a2333]">
+      <div className="fixed inset-0 w-full h-[100dvh] bg-[#060910] select-none overflow-hidden flex justify-center items-center overscroll-none">
+        {/* Ambient subtle glass glow backdrop */}
+        <div className="absolute -top-32 -left-32 w-96 h-96 bg-cyan-500/10 rounded-full blur-[128px] pointer-events-none" />
+        <div className="absolute -bottom-32 -right-32 w-96 h-96 bg-emerald-500/10 rounded-full blur-[128px] pointer-events-none" />
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] bg-purple-500/5 rounded-full blur-[160px] pointer-events-none" />
+
+        {/* Quotex Mobile Glass Container */}
+        <div className="relative w-full h-full max-w-full sm:max-w-md md:max-w-xl lg:max-w-2xl bg-[#080c15]/95 backdrop-blur-3xl flex flex-col justify-between overflow-hidden shadow-2xl sm:border-x sm:border-white/[0.08]">
           {/* 1. Header with 3-Line Menu, Account pill, Bell badge, Deposit CTA, and 50% bonus banner */}
           <QuotexMobileTopBar
             onOpenDeposit={() => setDepositOpen(true)}

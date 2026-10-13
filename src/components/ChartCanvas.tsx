@@ -136,11 +136,12 @@ export const ChartCanvas: React.FC<ChartCanvasProps> = ({
   const touchDownPointRef = useRef<{ x: number; y: number; time: number } | null>(null);
 
   // Helper: whether interactive shape/line drawing is currently allowed on the canvas
-  // When Pen/Brush Tool is selected (not 'none' and not 'crosshair'), drawing is active!
-  // FIX: Even when the brush tools toolbar is hidden (isPenToolbarHidden), writing/drawing STILL WORKS smoothly!
+  // Strictly false when Pen Tool is closed ('none') OR when Drawing Tool / Drawings are hidden!
   const isDrawingActive =
     activeDrawingTool !== 'none' &&
-    activeDrawingTool !== 'crosshair';
+    activeDrawingTool !== 'crosshair' &&
+    !isPenToolbarHidden &&
+    !hideDrawings;
 
   // Persistent Crosshair (+) position on chart that works everywhere ("+ button nahi add kia drawing tool ma har jaga work kara")
   const [crosshairPlusEnabled, setCrosshairPlusEnabled] = useState<boolean>(false);
@@ -382,7 +383,7 @@ export const ChartCanvas: React.FC<ChartCanvasProps> = ({
     return liveCandleX + idxFloat * candleWidth;
   };
 
-  // Main rendering loop on high-DPI canvas (V-Sync aligned with requestAnimationFrame for zero-lag smooth rendering)
+  // Main rendering loop on high-DPI canvas with requestAnimationFrame for butter-smooth 60+ FPS zero lag
   useEffect(() => {
     let animId: number;
     animId = requestAnimationFrame(() => {
@@ -405,8 +406,8 @@ export const ChartCanvas: React.FC<ChartCanvasProps> = ({
       ctx.save();
       ctx.scale(dpr, dpr);
 
-      // Clear canvas transparently so the underlying container background & 10x-1000x watermark image layer shine through cleanly
-      ctx.clearRect(0, 0, width, height);
+    // Clear canvas transparently so the underlying container background & 10x-1000x watermark image layer shine through cleanly
+    ctx.clearRect(0, 0, width, height);
 
     if (displayCandles.length < 2) {
       ctx.restore();
@@ -1100,6 +1101,9 @@ export const ChartCanvas: React.FC<ChartCanvasProps> = ({
 
     if (!hideDrawings) {
       drawnLines.forEach((l) => renderLineItem(l, false));
+      if (draftLine) {
+        renderLineItem({ ...(draftLine as any), color: drawingColor, lineWidth: drawingStrokeWidth }, true);
+      }
       // Render tap-by-tap 4-Dot builder preview (automatically fills color as you tap dots 1..4)
       if (pendingFourDots.length > 0) {
         ctx.save();
@@ -1132,11 +1136,6 @@ export const ChartCanvas: React.FC<ChartCanvasProps> = ({
         });
         ctx.restore();
       }
-    }
-
-    // Always render active draft line so user can immediately see what they are drawing or writing
-    if (draftLine) {
-      renderLineItem({ ...(draftLine as any), color: drawingColor, lineWidth: drawingStrokeWidth }, true);
     }
 
     // 9. Active Trades Strike Lines & Circular Arrow Badges ONLY ("is tera show ho ok na timer na amount only arrow ok")
@@ -1473,12 +1472,12 @@ export const ChartCanvas: React.FC<ChartCanvasProps> = ({
     }
 
     ctx.restore();
-    });
+  });
 
-    return () => {
-      cancelAnimationFrame(animId);
-    };
-  }, [
+  return () => {
+    cancelAnimationFrame(animId);
+  };
+}, [
     displayCandles,
     activeAsset,
     chartType,
@@ -1549,7 +1548,7 @@ export const ChartCanvas: React.FC<ChartCanvasProps> = ({
 
   // Check if a click/touch at (x, y) hits any of the 4 corner dots or interior of a 4-Dot Custom Shape or Rectangle
   const checkHitOnShapes = (x: number, y: number, hitRadius = 17): boolean => {
-    if (!chartDimsRef.current || hideDrawings || activeDrawingTool === 'none') return false;
+    if (!chartDimsRef.current || hideDrawings || isPenToolbarHidden || activeDrawingTool === 'none') return false;
     for (let i = drawnLines.length - 1; i >= 0; i--) {
       const l = drawnLines[i];
       if (l.visible === false) continue;
@@ -1756,15 +1755,12 @@ export const ChartCanvas: React.FC<ChartCanvasProps> = ({
       return;
     }
 
-    // Only allow grabbing/editing 4 dots or drawing when Pen Tool is ON!
+    // Only allow grabbing/editing 4 dots or drawing when Pen Tool is ON and NOT hidden!
     if (isDrawingActive && pendingFourDots.length === 0 && checkHitOnShapes(x, y, 16)) {
       return;
     }
 
     if (isDrawingActive) {
-      if (hideDrawings) {
-        setHideDrawings(false);
-      }
       const coords = screenToChartCoords(x, y);
       if (!coords) return;
 
@@ -1939,9 +1935,6 @@ export const ChartCanvas: React.FC<ChartCanvasProps> = ({
     draggedShapeRef.current = null;
     isDraggingCrosshairRef.current = false;
     if (isDrawingRef.current && draftLine) {
-      if (hideDrawings) {
-        setHideDrawings(false);
-      }
       isDrawingRef.current = false;
       if (draftLine.type === 'channel') {
         const downPt = touchDownPointRef.current;
@@ -2119,16 +2112,13 @@ export const ChartCanvas: React.FC<ChartCanvasProps> = ({
         return;
       }
 
-      // Only allow grabbing/editing 4 dots or drawing when Pen Tool is ON!
+      // Only allow grabbing/editing 4 dots or drawing when Pen Tool is ON and NOT hidden!
       if (isDrawingActive && pendingFourDots.length === 0 && checkHitOnShapes(clickX, clickY, 20)) {
         setMousePos({ x: clickX, y: clickY });
         return;
       }
 
       if (isDrawingActive) {
-        if (hideDrawings) {
-          setHideDrawings(false);
-        }
         const coords = screenToChartCoords(clickX, clickY);
         if (!coords) return;
 
@@ -2548,84 +2538,69 @@ export const ChartCanvas: React.FC<ChartCanvasProps> = ({
           </button>
         )}
 
-        {/* 3. Pen Tool Button + Toolbar Show/Hide Toggle */}
+        {/* 3. Pen Tool Button + Separate (Alada) Drawing Tool Hide Button */}
         {showChartButtons && showPenButton && (
           <div className="flex items-center gap-1.5">
             <button
               onClick={() => {
+                // "Jab hum pen banda kara tu draw na ho" -> strictly toggle Pen ON / OFF
                 if (activeDrawingTool === 'none') {
                   setHideDrawings(false);
                   setIsPenToolbarHidden(false);
-                  setActiveDrawingTool('freehand');
-                } else if (isPenToolbarHidden) {
-                  // If toolbar was hidden, clicking pen button brings back the toolbar
-                  setIsPenToolbarHidden(false);
+                  setActiveDrawingTool('freehand'); // Defaults to Brush / Free Pen without auto-drawing channel dots
                 } else {
-                  // Turn OFF Pen Tool (Stop Drawing)
                   isDrawingRef.current = false;
                   setDraftLine(null);
                   setPendingFourDots([]);
+                  setIsPenToolbarHidden(false);
                   setActiveDrawingTool('none');
                 }
               }}
-              className={`relative w-9 h-9 rounded-xl border flex items-center justify-center shadow-lg transition-all active:scale-95 cursor-pointer ${
-                activeDrawingTool !== 'none'
-                  ? 'bg-amber-400 text-slate-950 border-amber-300 font-bold'
-                  : 'bg-[#141b27]/90 hover:bg-[#1c2637] border-[#232f44] text-slate-300 hover:text-white'
+              className={`relative w-9 h-9 rounded-xl border flex items-center justify-center shadow-lg transition-all active:scale-95 cursor-pointer backdrop-blur-xl ${
+                activeDrawingTool !== 'none' && !isPenToolbarHidden && !hideDrawings
+                  ? 'bg-amber-400 text-slate-950 border-amber-300 shadow-[0_0_15px_rgba(251,191,36,0.35)]'
+                  : 'bg-[#0e1626]/80 hover:bg-[#162238]/90 border-white/10 text-slate-300 hover:text-white'
               }`}
-              title={
-                activeDrawingTool !== 'none'
-                  ? isPenToolbarHidden
-                    ? 'Pen/Brush Active (Toolbar Hidden) - Click to Show Toolbar or turn off'
-                    : 'Turn OFF Pen Tool (Stop Drawing)'
-                  : 'Open Pen & Brush Drawing Tools'
-              }
+              title={activeDrawingTool !== 'none' ? 'Turn OFF Pen Tool (Stop Drawing)' : 'Open Pen & Drawing Tool'}
             >
               <PenTool className="w-4 h-4 stroke-[2]" />
               {drawnLines.length > 0 && activeDrawingTool === 'none' && (
-                <span className="absolute -top-1 -right-1 bg-amber-400 text-slate-950 text-[9px] font-black rounded-full w-4 h-4 flex items-center justify-center">
+                <span className="absolute -top-1 -right-1 bg-amber-400 text-slate-950 text-[9px] font-black rounded-full w-4 h-4 flex items-center justify-center shadow">
                   {drawnLines.length}
                 </span>
               )}
             </button>
 
-            {/* Toolbar Hide / Unhide Toggle Button when drawing tool is active */}
-            {activeDrawingTool !== 'none' && (
+            {/* Separate (Alada) Hide Button for Drawing Tool / Drawn Shapes right next to Pen when Pen is open or drawings exist */}
+            {(activeDrawingTool !== 'none' || drawnLines.length > 0 || isPenToolbarHidden || hideDrawings) && (
               <button
                 onClick={() => {
-                  setIsPenToolbarHidden(!isPenToolbarHidden);
+                  const currentlyHidden = isPenToolbarHidden || hideDrawings;
+                  if (currentlyHidden) {
+                    // Unhide Drawing Tool & Drawn Shapes
+                    setIsPenToolbarHidden(false);
+                    setHideDrawings(false);
+                  } else {
+                    // Hide Drawing Tool & Stop Drawing ("jab hide karo tu draw na ho")
+                    isDrawingRef.current = false;
+                    setDraftLine(null);
+                    setPendingFourDots([]);
+                    setIsPenToolbarHidden(true);
+                    setHideDrawings(true);
+                  }
                 }}
-                className={`w-8 h-8 rounded-xl border flex items-center justify-center shadow-lg transition-all active:scale-95 cursor-pointer ${
-                  isPenToolbarHidden
-                    ? 'bg-amber-500/20 border-amber-400 text-amber-300'
-                    : 'bg-[#141b27]/90 hover:bg-[#1c2637] border-emerald-500/40 text-emerald-300 hover:text-white'
+                className={`w-8 h-8 rounded-xl border flex items-center justify-center shadow-lg transition-all active:scale-95 cursor-pointer backdrop-blur-xl ${
+                  isPenToolbarHidden || hideDrawings
+                    ? 'bg-rose-500/20 border-rose-400 text-rose-300'
+                    : 'bg-[#0e1626]/80 hover:bg-[#162238]/90 border-emerald-500/40 text-emerald-300 hover:text-white'
                 }`}
                 title={
-                  isPenToolbarHidden
-                    ? 'Show Brush Tools Toolbar (Drawing is Active)'
-                    : 'Hide Toolbar (Draw freely with unobstructed chart view)'
+                  isPenToolbarHidden || hideDrawings
+                    ? 'Show Drawing Tool & Drawings'
+                    : 'Hide Drawing Tool & Stop Drawing'
                 }
               >
-                {isPenToolbarHidden ? (
-                  <EyeOff className="w-3.5 h-3.5 stroke-[2]" />
-                ) : (
-                  <Eye className="w-3.5 h-3.5 stroke-[2]" />
-                )}
-              </button>
-            )}
-
-            {/* Separate Hide / Show All Drawn Shapes Eye Button (when lines exist and tool is 'none') */}
-            {activeDrawingTool === 'none' && drawnLines.length > 0 && (
-              <button
-                onClick={() => setHideDrawings(!hideDrawings)}
-                className={`w-8 h-8 rounded-xl border flex items-center justify-center shadow-lg transition-all active:scale-95 cursor-pointer ${
-                  hideDrawings
-                    ? 'bg-rose-500/20 border-rose-400 text-rose-300'
-                    : 'bg-[#141b27]/90 hover:bg-[#1c2637] border-[#232f44] text-slate-400 hover:text-white'
-                }`}
-                title={hideDrawings ? 'Show Drawn Lines on Chart' : 'Hide Drawn Lines on Chart'}
-              >
-                {hideDrawings ? (
+                {isPenToolbarHidden || hideDrawings ? (
                   <EyeOff className="w-3.5 h-3.5 stroke-[2]" />
                 ) : (
                   <Eye className="w-3.5 h-3.5 stroke-[2]" />
@@ -2663,8 +2638,8 @@ export const ChartCanvas: React.FC<ChartCanvasProps> = ({
         )}
       </div>
 
-      {/* Interactive Pen Tool Floating & Draggable Toolbar (Shown when Pen is ON and toolbar is not hidden) */}
-      {activeDrawingTool !== 'none' && !isPenToolbarHidden && (
+      {/* Interactive Pen Tool Floating & Draggable Toolbar (Only shown when Pen is ON and Drawing Tool is NOT hidden) */}
+      {activeDrawingTool !== 'none' && !isPenToolbarHidden && !hideDrawings && (
         <div
           style={{
             left: `${toolbarPos.x}px`,
@@ -2707,16 +2682,19 @@ export const ChartCanvas: React.FC<ChartCanvasProps> = ({
               <span>+ 4-Line</span>
             </button>
 
-            {/* 2. Hide Toolbar Box Button (Keeps drawing active while hiding toolbar for full chart view) */}
+            {/* 2. Separate (Alada) Eye Button inside Drawing Tool: Hides Drawing Tool & Stops Drawing ("jab hide karo tu draw na ho alada hide drawing tool ka") */}
             <button
               onClick={() => {
+                isDrawingRef.current = false;
+                setDraftLine(null);
+                setPendingFourDots([]);
                 setIsPenToolbarHidden(true);
               }}
               className="px-2 py-1 rounded-lg text-[10px] font-bold cursor-pointer transition-colors flex items-center gap-1 bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 border border-emerald-400/50"
-              title="Hide Toolbar Box (Keep drawing freely on chart)"
+              title="Hide Drawing Tool Box (Stops drawing while hidden)"
             >
               <EyeOff className="w-3.5 h-3.5" />
-              <span>Hide Toolbar</span>
+              <span>Hide Tool</span>
             </button>
 
             {/* 3. Custom Shape (4 Dots using ONLY Color Palette color) */}
